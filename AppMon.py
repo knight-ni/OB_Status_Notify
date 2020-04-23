@@ -11,6 +11,7 @@ import requests
 
 def getdata(status='ERROR'):
     msg = []
+    #status = 'WARNING'
     cont = None
     myurl = 'http://10.41.10.200/status.html'
     htmldoc = urllib.request.urlopen(myurl).read().decode('UTF-8')
@@ -19,9 +20,16 @@ def getdata(status='ERROR'):
     qs = [td['onmouseover'] for td in tds if status in td.text]
     #qs = [td['onmouseover'] for td in tds if 'WARNING' in td.text]
     for i in qs:
-        msg_txt = str(i).replace("javascript:toggle_app(", "").replace(")", "").replace("'", "").replace(",", " ").replace(";", "")
-        if msg_txt:
-            msg.append('status ' + status + ' founded on ' + msg_txt)
+        reason = []
+        tar = str(i).replace("javascript:toggle_app(", "").replace(")", "").replace("'", "").replace(",", "-").replace(";", "")
+        for x in soup.findAll('div', id=tar):
+            for y in x.findAll('tr'):
+                if y.findAll('td', text=status):
+                    txt = [ z.text.strip() for z in y.findAll('td') if z.text != status ]
+                    reason.append(' '.join(txt))
+        reason_txt = '\n'.join(reason)
+        if reason_txt:
+            msg.append('status ' + status + ' founded on ' + tar + '. reason: ' + reason_txt)
             cont = '\n'.join(msg)
         else:
             sys.exit()
@@ -37,7 +45,7 @@ def getdata(status='ERROR'):
 class AppMon:
 
     @staticmethod
-    def toalertmanager(myurl, myalertname, myinstance, myservice, myseverity, mysummary, myauthor):
+    def toalertmanager(myurl, myalertname, myinstance, myservice, myseverity, mysummary, mydescription, myauthor):
         alerts1 = '''[
           {
             "labels": {
@@ -48,10 +56,11 @@ class AppMon:
              },
              "annotations": {
                 "summary": "%s",
+                "description": "%s",
                 "author": "%s"
               }
           }
-        ]''' % (myalertname, myinstance, myservice, myseverity, mysummary, myauthor)
+        ]''' % (myalertname, myinstance, myservice, myseverity, mysummary, mydescription, myauthor)
 
         data = alerts1
         response = requests.post(myurl, data=data)
@@ -73,6 +82,7 @@ class AppMon:
 if __name__ == "__main__":
     url = 'http://10.41.15.16:9093/api/v1/alerts'
     interval = 0
+    duration = 5
     omd5 = None
     mon = AppMon()
     text = None
@@ -92,9 +102,9 @@ if __name__ == "__main__":
                 interval = etime.seconds
         except IOError:
             pass
-        if omd5 == md5 and interval<60:
-            m,s = divmod(60-interval,60)
-            h,m = divmod(m,60)
+        if omd5 == md5 and interval<duration:
+            m,s = divmod(duration-interval,duration)
+            h,m = divmod(m,duration)
             print("%d seconds elapsed from last alert sending.will be remind again after %02d:%02d:%02d." % (interval,h,m,s))
             exit()
         else:
@@ -105,8 +115,11 @@ if __name__ == "__main__":
             author = 'Knight.Ni'
             cbegin = len('status Error founded on ')
             for summary in text.split('\n'):
-                instance,service = summary.replace(' ',',').split(',')[4:6]
-                res = mon.toalertmanager(url, alertname, instance, service, severity, summary, author)
+                warninfo = summary.replace(' ',',').replace('.','').split(',')[4]
+                instance,service = warninfo.split('-')
+                reason = summary.split('reason:')[1].strip()
+                warntxt = 'status Error founded on ' + warninfo
+                res = mon.toalertmanager(url, alertname, instance, service, severity, warntxt, reason, author)
             with open(sys.path[0]+'/maildt','w') as f:
                 f.write(time.strftime('%Y-%m-%d %H:%M:%S',time.localtime())+'|'+md5)
     else:
